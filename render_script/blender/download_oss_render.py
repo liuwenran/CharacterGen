@@ -4,6 +4,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--thread", type=int)
+parser.add_argument("--all", action='store_true', default=False)
 args = parser.parse_args()
 
 MARGIN = 2000
@@ -11,7 +12,11 @@ MARGIN = 2000
 all_blend_id_file = '/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/blend_oss_id.txt'
 remote_blend_file_dir = 's3://lol/240628_VRoidData/'
 temp_dir = '/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_blend_temp'
-finished_id_file = f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/finished_id_{args.thread}.txt'
+
+if not args.all:
+    finished_id_file = f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/finished_id_{args.thread}.txt'
+else:
+    finished_id_file = f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/finished_id_all.txt'
 
 if os.path.exists(finished_id_file):
     finished_id_file_handle = open(finished_id_file, 'r')
@@ -30,19 +35,38 @@ else:
 finished_id_file_handle = open(finished_id_file, 'a+')
 
 
+if not args.all:
+    failed_id_file = f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/failed_id_{args.thread}.txt'
+else:
+    failed_id_file = f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/failed_id_all.txt'
+
+if os.path.exists(failed_id_file):
+    failed_id_file_handle = open(failed_id_file, 'r')
+    failed_file_lines = failed_id_file_handle.read().splitlines()
+    failed_id_set = set(failed_file_lines)
+    failed_id_file_handle.close()
+else:
+    failed_id_set = set()
+failed_id_file_handle = open(failed_id_file, 'a+')
+
+
+
 all_blend_id_lines = open(all_blend_id_file, 'r').read().splitlines()
-failed_id_file = open(f'/home/PJLAB/liuwenran/bigdisk/vroidhub_14k_info/failed_id_{args.thread}.txt', 'w+')
 
 
 for ind, line in enumerate(all_blend_id_lines):
-    if ind >= args.thread * MARGIN and ind < (args.thread + 1) * MARGIN:
-        print(f"Processing {ind} file")
-    else:
-        continue
+    if not args.all:
+        if ind >= args.thread * MARGIN and ind < (args.thread + 1) * MARGIN:
+            print(f"Processing {ind} file")
+        else:
+            continue
     blend_id = line.split('.')[0]
     blend_name = blend_id + '.blend'
     if blend_id in finished_id_set:
         print(f"File {blend_name} already rendered")
+        continue
+    if blend_id in failed_id_set:
+        print(f"File {blend_name} failed before")
         continue
 
     blend_remote_path = os.path.join(remote_blend_file_dir, blend_name)
