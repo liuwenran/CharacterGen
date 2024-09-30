@@ -37,6 +37,23 @@ def look_at(obj_camera, point):
     rot_quat = direction.to_track_quat('-Z', 'Y')
     obj_camera.rotation_euler = rot_quat.to_euler()
 
+
+def calc_camera_position(base_camera_position=(0, -2.5, 0.5), radius=2.5, num_cameras=21):
+    camera_positions = []
+
+    for i in range(num_cameras):
+        angle = 0 - math.pi / 2 + 2 * math.pi * i / num_cameras  # 计算每个相机的角度
+        x = round(radius * math.cos(angle), 2)# 计算x坐标
+        y = round(radius * math.sin(angle), 2)  # 计算y坐标
+        camera_positions.append((x, y, base_camera_position[2]))  # z坐标保持不变
+
+    # 打印相机位置
+    # for idx, pos in enumerate(camera_positions):
+    #     print(f"{idx * 40}: {pos}")
+
+    return camera_positions
+
+
 def CameraMove():
     # 获取当前场景
 
@@ -169,8 +186,11 @@ def CameraMove():
     scene = bpy.context.scene
     scene.collection.objects.link(camera_object)
 
+    camera_positions = calc_camera_position(base_camera_position=(0.0, -3.5, 0.7), radius=3.5, num_cameras=21)
+
     # camera_object.location = (0, 0, 0)  # 设置摄像机位置
-    camera_object.location = (0.0, -3.5, 0.7)  # 设置摄像机位置
+    # camera_object.location = (0.0, -3.5, 0.7)  # 设置摄像机位置
+    camera_object.location = camera_positions[1]  # 设置摄像机位置
 
     origin = (0, 0, 0.7)
     look_at(camera_object, Vector(origin))
@@ -271,7 +291,7 @@ def split_str(s, num):
     return ""
 
 
-def blender_mp4(camera_track, image_path, save_dir):
+def blender_mp4(camera_track, image_path, save_dir, view_name='view0'):
     # 获取当前打开的.blend文件的路径
     current_blend_file_path = bpy.data.filepath   
 
@@ -281,7 +301,7 @@ def blender_mp4(camera_track, image_path, save_dir):
     time_str = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
     # mp4_path = blend_name + "_" + camera_track + "_" + image_name + "_" + time_str + ".mp4"
-    mp4_path = os.path.join(save_dir, blend_name + "_" + "view0" + ".mp4")
+    mp4_path = os.path.join(save_dir, blend_name + "_" + view_name + ".mp4")
 
     # 设置输出格式为 FFmpeg 视频
     bpy.context.scene.render.image_settings.file_format = 'FFMPEG'
@@ -337,9 +357,10 @@ if __name__ == "__main__":
 
     print("image_path:", image_path)
     root_path = '/home/PJLAB/liuwenran/bigdisk'
+    view_name = 'view5'
     save_dir = os.path.join(root_path, save_path)
     os.makedirs(save_dir, exist_ok=True)
-    blender_mp4(camera_track, image_path, save_dir)
+    blender_mp4(camera_track, image_path, save_dir, view_name=view_name)
     # print_camera(camera_track, image_path )
     # 保存当前 Blender 文件
     # save_path_split = current_file.split('/')
