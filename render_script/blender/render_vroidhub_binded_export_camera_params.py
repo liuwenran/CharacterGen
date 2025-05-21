@@ -54,7 +54,7 @@ def calc_camera_position(base_camera_position=(0, -2.5, 0.5), radius=2.5, num_ca
     return camera_positions
 
 
-def CameraMove(view_id=0):
+def CameraMove(view_number=0):
     # 获取当前场景
 
     track_lists = [
@@ -190,7 +190,7 @@ def CameraMove(view_id=0):
 
     # camera_object.location = (0, 0, 0)  # 设置摄像机位置
     # camera_object.location = (0.0, -3.5, 0.7)  # 设置摄像机位置
-    camera_object.location = camera_positions[view_id]  # 设置摄像机位置
+    camera_object.location = camera_positions[view_number]  # 设置摄像机位置
 
     origin = (0, 0, 0.7)
     look_at(camera_object, Vector(origin))
@@ -212,7 +212,7 @@ def CameraMove(view_id=0):
     return camera_track
 
 
-def print_camera(camera_track, image_path):
+def print_camera(camera_track, image_path, save_dir, view_name):
     # 获取场景
     scene = bpy.context.scene
 
@@ -230,19 +230,31 @@ def print_camera(camera_track, image_path):
     image_name = image_path.split("/")[-1].split("_4k")[0]
 
     txt_path = blend_name + "_" + camera_track + "_" + image_name + ".txt"
+    npy_path = os.path.join(save_dir, f"camera_position_{view_name}.npy")
+    scene.frame_set(start_frame)
+    # 使用 matrix_world 获取有约束影响的位置和旋转
+    camera_world_location = camera.matrix_world.to_translation()
+    camera_world_rotation = camera.matrix_world.to_euler()
+    camera_position = {}
+    camera_position['camera_world_location'] = np.array(camera_world_location)
+    camera_position['camera_world_rotation'] = np.array(camera_world_rotation)
+    np.save(npy_path, camera_position)
+    print("camera_position:", camera_position)
 
     # 打印相机信息
-    with open(f'{txt_path}', 'w') as file:
-        for frame in range(start_frame, end_frame + 1):
-            scene.frame_set(frame)
-            # 使用 matrix_world 获取有约束影响的位置和旋转
-            camera_world_location = camera.matrix_world.to_translation()
-            camera_world_rotation = camera.matrix_world.to_euler()
+    # with open(f'{txt_path}', 'w') as file:
+    #     for frame in range(start_frame, end_frame + 1):
+    #         scene.frame_set(frame)
+    #         # 使用 matrix_world 获取有约束影响的位置和旋转
+    #         camera_world_location = camera.matrix_world.to_translation()
+    #         camera_world_rotation = camera.matrix_world.to_euler()
 
-            # 打印相机的世界位置和旋转
-            # print(f"{frame}: {camera_world_location},  {camera_world_rotation}")
-            line = f"{frame}: {camera_world_location},  {camera_world_rotation}\n"
-            file.write(line)
+    #         # 打印相机的世界位置和旋转
+    #         print(f"{frame}: {camera_world_location},  {camera_world_rotation}")
+    #         # 将相机位置和旋转保存到文件
+
+    #         line = f"{frame}: {camera_world_location},  {camera_world_rotation}\n"
+    #         file.write(line)
 
 
 def create_world_with_environment_texture(image_path):
@@ -320,8 +332,9 @@ def blender_mp4(camera_track, image_path, save_dir, view_name='view0'):
 
     bpy.context.scene.render.filepath = mp4_path
 
+
     # 执行渲染
-    bpy.ops.render.render(animation=True, write_still=True)
+    # bpy.ops.render.render(animation=True, write_still=True)
 
 
 def select_background():
@@ -335,15 +348,70 @@ def select_background():
     return image_path
 
 
+def get_camera_params(cam=None, scene=None):
+    """
+    计算并返回 Blender 摄像机的内参 K (3x3 numpy array)
+    以及外参 R (3x3 numpy array) 和 t (3x1 numpy array)，
+    同时返回原始渲染分辨率 W0, H0 和 camera.matrix_world 矩阵 cw。
+
+    返回:
+        K  -- 摄像机内参矩阵 (3×3)
+        R  -- world->camera 的旋转矩阵 (3×3)
+        t  -- world->camera 的平移向量 (3×1)
+        W0 -- scene.render.resolution_x
+        H0 -- scene.render.resolution_y
+        cw -- cam.matrix_world (mathutils.Matrix)
+    """
+    if scene is None:
+        scene = bpy.context.scene
+    if cam is None:
+        cam = scene.camera
+
+    # 原始渲染分辨率
+    W0 = scene.render.resolution_x
+    H0 = scene.render.resolution_y
+    scale = scene.render.resolution_percentage / 100.0
+
+    # 相机物理参数
+    f_mm      = cam.data.lens
+    sensor_w  = cam.data.sensor_width
+    sensor_h  = cam.data.sensor_height
+    px_aspect = scene.render.pixel_aspect_x
+    py_aspect = scene.render.pixel_aspect_y
+    alpha     = px_aspect / py_aspect
+
+    # 像素域焦距和主点
+    fx = f_mm * (W0 * scale) / sensor_w
+    fy = f_mm * (H0 * scale) * alpha / sensor_h
+    cx = (W0 * scale) / 2.0
+    cy = (H0 * scale) / 2.0
+
+    # 构造内参矩阵 K
+    K = np.array([
+        [fx,  0.0, cx],
+        [0.0, fy,  cy],
+        [0.0, 0.0, 1.0]
+    ])
+
+    # 计算外参：world -> camera
+    world2cam = cam.matrix_world.inverted()
+    R = np.array(world2cam.to_3x3())
+    t = np.array(world2cam.to_translation()).reshape((3, 1))
+
+    # 直接返回 camera.matrix_world
+    cw = cam.matrix_world.copy()
+
+    return K, R, t, W0, H0, cw
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--hdr_path", type=str, help="背景环境图片")
     parser.add_argument("--save_path", type=str, help="保存路径")
-    parser.add_argument("--view_id", type=int, help="view id")
+    parser.add_argument("--view_number", type=int)
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])  # 分割blender参数和自定义py文件参数
 
-    camera_track = CameraMove(args.view_id)
+    camera_track = CameraMove(args.view_number)
     # constraint()
 
     # 用您自己的图像路径替换这里的路径
@@ -358,11 +426,25 @@ if __name__ == "__main__":
 
     print("image_path:", image_path)
     root_path = '/home/PJLAB/liuwenran/bigdisk'
-    view_name = f'view{args.view_id}'
+    view_name = 'view' + str(args.view_number)
     save_dir = os.path.join(root_path, save_path)
     os.makedirs(save_dir, exist_ok=True)
     blender_mp4(camera_track, image_path, save_dir, view_name=view_name)
-    # print_camera(camera_track, image_path )
+
+    camera = bpy.data.objects['Camera']
+    K, R, t, W0, H0, cw = get_camera_params(camera, bpy.context.scene)
+    print_camera(camera_track, image_path, save_dir, view_name=view_name)
+
+    camera_dict = {}
+    camera_dict['K'] = K
+    camera_dict['R'] = R
+    camera_dict['t'] = t
+    camera_dict['W0'] = W0
+    camera_dict['H0'] = H0
+    camera_dict['cw'] = np.array(cw)
+    print("camera_dict:", camera_dict)
+    np.save(os.path.join(save_dir, f"camera_dict_{view_name}.npy"), camera_dict)
+
     # 保存当前 Blender 文件
     # save_path_split = current_file.split('/')
     # save_path_split[-1] = '1_without_fbx.blend'
